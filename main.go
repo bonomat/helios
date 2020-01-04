@@ -162,7 +162,7 @@ func (c *libp2pPubSub) initializePubSub(h core.Host) {
 
 // createHost creates a host with some default options and a signing identity
 func createHost(port int) (core.Host, error) {
-	// Producing pirvate key
+	// Producing pirate key
 	prvKey, _ := ecdsa.GenerateKey(btcec.S256(), rand.Reader)
 	sk := (*crypto.Secp256k1PrivateKey)(prvKey)
 
