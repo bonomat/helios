@@ -52,7 +52,7 @@ func setupNetworkTopology(hosts []*core.Host) {
 	connectHostToPeer(*hosts[4], getLocalhostAddress(*hosts[1]))
 	connectHostToPeer(*hosts[3], getLocalhostAddress(*hosts[1]))
 	connectHostToPeer(*hosts[4], getLocalhostAddress(*hosts[1]))
-	connectHostToPeer(*hosts[0], "/ip4/10.0.0.15/tcp/9900/p2p/16Uiu2HAm8LK6GuXhkRy15D47Njbxym17GN5bQQcRrGNbNtSdP2Yz")
+	connectHostToPeer(*hosts[0], "/ip4/10.0.0.9/tcp/9900/p2p/16Uiu2HAkwNtUqDvkanuLN4sdrSwMDHr95CgZ5h7FwYhmxgbG2qAW")
 
 	// Wait so that subscriptions on topic will be done and all peers will "know" of all other peers
 	time.Sleep(time.Second * 2)
@@ -68,16 +68,16 @@ func startListening(pubSubs []*libp2pPubSub, hosts []*core.Host) {
 		go func(host *core.Host, pubSub *libp2pPubSub) {
 			for true {
 				msg, _ := pubSub.subscription.Next(context.Background())
-				fmt.Printf("Node %s received Message: '%s'\n", (*host).ID().Pretty(), string(msg.Data))
+				fmt.Printf("Node %s received Message: '%s' from '%s' \n", (*host).ID().Pretty(), string(msg.Data), string(msg.ReceivedFrom.Pretty()))
 			}
 
 		}(host, pubSubs[i])
 	}
 	fmt.Println("Broadcasting a message on node 0...")
-	pubSubs[0].Broadcast("Fire in the hole 0!")
+	pubSubs[0].Broadcast("Bananaboatckr")
 
 	fmt.Println("Broadcasting a message on node 1...")
-	pubSubs[0].Broadcast("Fire in the hole 1!")
+	pubSubs[1].Broadcast("Bananaboatckr 2")
 	wg.Wait()
 	fmt.Println("The END")
 }
@@ -186,7 +186,7 @@ func createHost(port int) (core.Host, error) {
 // getLocalhostAddress is used for getting address of hosts
 func getLocalhostAddress(h core.Host) string {
 	for _, addr := range h.Addrs() {
-		if strings.Contains(addr.String(), "10.0.0.9") {
+		if strings.Contains(addr.String(), "10.0.0.15") {
 			fmt.Println(addr.String() + "/p2p/" + h.ID().Pretty())
 			return addr.String() + "/p2p/" + h.ID().Pretty()
 		}
