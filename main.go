@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"flag"
 	"fmt"
+	"strings"
 
 	"os"
 	"sync"
@@ -18,20 +19,22 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/libp2p/go-libp2p"
 	core "github.com/libp2p/go-libp2p-core"
+	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/protocol"
 	crypto "github.com/libp2p/go-libp2p-crypto"
+	protocol "github.com/libp2p/go-libp2p-protocol"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/multiformats/go-multiaddr"
+	maddr "github.com/multiformats/go-multiaddr"
 )
 
 var logger = log.Logger("helios")
 
-func startListening(ctx context.Context, ps libp2pPubSub, host core.Host) {
+func startListening(config Config, ctx context.Context, ps libp2pPubSub, host core.Host) {
 	wg := &sync.WaitGroup{}
 
 	wg.Add(1)
-	go func(host *core.Host, pubSub *libp2pPubSub) {
+	go func(config Config, host *core.Host, pubSub *libp2pPubSub) {
 		for {
 			msg, err := pubSub.subscription.Next(ctx)
 			if err != nil {
@@ -39,29 +42,45 @@ func startListening(ctx context.Context, ps libp2pPubSub, host core.Host) {
 				continue
 			}
 
-			if (*host).ID() != msg.ReceivedFrom {
-				stream, err := (*host).NewStream(ctx, msg.ReceivedFrom, protocol.ID("/chat/1.1.0"))
-				if err != nil {
-					logger.Errorf("Error: %v\n", err)
-					continue
-				}
-				_, err = stream.Write([]byte("test"))
+			if !strings.Contains(string(msg.Data), (*host).ID().String()) {
+				logger.Debugf("Connecting to: %s", string(msg.Data))
+
+				address, err := maddr.NewMultiaddr(string(msg.Data))
 				if err != nil {
 					logger.Errorf("Error: %v\n", err)
 					continue
 				}
 
-				rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
+				connectHostToPeer(ctx, *host, address)
 
-				go readData(rw)
+				pInfo, err := peer.AddrInfoFromP2pAddr(address)
+				if err != nil {
+					logger.Errorf("Error: %v\n", err)
+					return
+				}
+
+				stream, err := (*host).NewStream(ctx, pInfo.ID, protocol.ID(config.ProtocolID))
+				if err != nil {
+					logger.Error("Connection failed:", err)
+					continue
+				}
+
+				logger.Debug("Sending hello")
+				message := append([]byte((*host).ID().Pretty()), []byte("\n")...)
+				message = append([]byte("hello from: "), message...)
+				_, err = stream.Write(message)
+				if err != nil {
+					logger.Errorf("Error: %v\n", err)
+					continue
+				}
 			}
 
 			logger.Infof("Node %s received Message: '%s' from '%s' \n", (*host).ID().Pretty(), string(msg.Data), string(msg.ReceivedFrom.Pretty()))
 		}
-	}(&host, &ps)
+	}(config, &host, &ps)
 
 	logger.Infof("Broadcasting a message ...")
-	err := ps.pubsub.Publish("TOPIC", []byte("Bananaboatckr"))
+	err := ps.pubsub.Publish("TOPIC", []byte(config.ListenAddresses[0].String()+"/p2p/"+host.ID().String()))
 	if err != nil {
 		logger.Errorf("Error: %v\n", err)
 	}
@@ -72,7 +91,7 @@ func startListening(ctx context.Context, ps libp2pPubSub, host core.Host) {
 
 func main() {
 	log.SetAllLoggers(logging.WARNING)
-	log.SetLogLevel("helios", "info")
+	log.SetLogLevel("helios", "debug")
 
 	help := flag.Bool("h", false, "Display Help")
 	config, err := ParseFlags()
@@ -93,6 +112,8 @@ func main() {
 		panic(err)
 	}
 
+	host.SetStreamHandler(protocol.ID(config.ProtocolID), handleStream)
+
 	logger.Infof(config.ListenAddresses[0].String() + "/p2p/" + host.ID().String())
 
 	ps := new(libp2pPubSub)
@@ -112,7 +133,7 @@ func main() {
 		connectHostToPeer(ctx, host, peer)
 	}
 
-	startListening(ctx, *ps, host)
+	startListening(config, ctx, *ps, host)
 }
 
 type libp2pPubSub struct {
@@ -179,6 +200,7 @@ func connectHostToPeer(ctx context.Context, h core.Host, address multiaddr.Multi
 		return
 	}
 
+	// TODO: only connect if not already connected.
 	err = h.Connect(ctx, *pInfo)
 	if err != nil {
 		logger.Errorf("Error: %v\n", err)
@@ -192,8 +214,8 @@ func readData(rw *bufio.ReadWriter) {
 	for {
 		str, err := rw.ReadString('\n')
 		if err != nil {
-			logger.Errorf("Error: %v\n", err)
-			panic(err)
+			logger.Warningf("Stream closed: %v\n", err)
+			return
 		}
 
 		if str == "" {
@@ -230,4 +252,16 @@ func writeData(rw *bufio.ReadWriter) {
 			panic(err)
 		}
 	}
+}
+
+func handleStream(stream network.Stream) {
+	logger.Info("Got a new stream!")
+
+	// Create a buffer stream for non blocking read and write.
+	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
+
+	go readData(rw)
+	go writeData(rw)
+
+	// 'stream' will stay open until you close it (or the other side closes it).
 }
